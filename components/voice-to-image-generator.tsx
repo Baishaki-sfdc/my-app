@@ -1,12 +1,13 @@
+// components/voice-to-image-generator/index.tsx
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useReactMediaRecorder } from 'react-media-recorder'
 import { Mic, StopCircle, Image, Redo } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
-export default function VoiceToImageGeneratorComponent() {
+const VoiceToImageGeneratorComponent = () => {
   const [isRecording, setIsRecording] = useState(false)
   const [generatedImage, setGeneratedImage] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -14,12 +15,38 @@ export default function VoiceToImageGeneratorComponent() {
   const [editablePrompt, setEditablePrompt] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const audioRef = useRef<Blob | null>(null)
 
-  const { startRecording, stopRecording, mediaBlobUrl } = useReactMediaRecorder({ audio: true })
+  const {
+    status,
+    startRecording,
+    stopRecording,
+    mediaBlobUrl,
+    clearBlobUrl
+  } = useReactMediaRecorder({
+    audio: true,
+    onStop: (blobUrl, blob) => {
+      audioRef.current = blob
+    },
+  })
 
-  const handleStartRecording = () => {
-    setIsRecording(true)
-    startRecording()
+  useEffect(() => {
+    return () => {
+      clearBlobUrl()
+    }
+  }, [clearBlobUrl])
+
+  const handleStartRecording = async () => {
+    try {
+      setError(null)
+      setIsRecording(true)
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(track => track.stop())
+      startRecording()
+    } catch (err) {
+      setError('Microphone permission denied. Please allow microphone access.')
+      setIsRecording(false)
+    }
   }
 
   const handleStopRecording = async () => {
@@ -29,40 +56,39 @@ export default function VoiceToImageGeneratorComponent() {
     setError(null)
 
     try {
-      // Wait for the mediaBlobUrl to be available
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      await new Promise(resolve => setTimeout(resolve, 500))
 
-      if (!mediaBlobUrl) {
+      if (!audioRef.current) {
         throw new Error('No audio recording available')
       }
 
-      const audioBlob = await fetch(mediaBlobUrl).then(r => r.blob())
       const formData = new FormData()
-      formData.append('audio', audioBlob, 'recording.webm')
+      formData.append('audio', audioRef.current, 'recording.webm')
 
-      // Step 1: Transcribe audio
       const transcribeResponse = await fetch('/api/transcribe', {
         method: 'POST',
         body: formData,
       })
+
       if (!transcribeResponse.ok) {
         const errorData = await transcribeResponse.json()
         throw new Error(errorData.error || 'Failed to transcribe audio')
       }
+
       const { transcript } = await transcribeResponse.json()
 
-      // Step 2: Generate prompt
       const promptResponse = await fetch('/api/generate-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript }),
       })
+
       if (!promptResponse.ok) {
         const errorData = await promptResponse.json()
         throw new Error(errorData.error || 'Failed to generate prompt')
       }
-      const { prompt } = await promptResponse.json()
 
+      const { prompt } = await promptResponse.json()
       setGeneratedPrompt(prompt)
       setEditablePrompt(prompt)
     } catch (error) {
@@ -70,6 +96,7 @@ export default function VoiceToImageGeneratorComponent() {
       setError(error instanceof Error ? error.message : 'An unknown error occurred')
     } finally {
       setIsProcessing(false)
+      audioRef.current = null
     }
   }
 
@@ -94,7 +121,7 @@ export default function VoiceToImageGeneratorComponent() {
       setGeneratedImage(imageUrl)
     } catch (error) {
       console.error('Error generating image:', error)
-      setError(error instanceof Error ? error.message : 'An unknown error occurred')
+      setError(error instanceof Error ? error.message : 'An unexpected error occurred')
     } finally {
       setIsGenerating(false)
     }
@@ -192,3 +219,6 @@ export default function VoiceToImageGeneratorComponent() {
     </div>
   )
 }
+
+// Add the default export
+export default VoiceToImageGeneratorComponent

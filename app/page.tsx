@@ -1,4 +1,4 @@
-import VoiceToImageGeneratorComponent from "@/components/voice-to-image-generator";
+import VoiceToImageGeneratorComponent from "@/components/voice-to-image-generator"
 
 export default function Home() {
   
